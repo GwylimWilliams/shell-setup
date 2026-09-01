@@ -22,6 +22,26 @@ packages are `zsh`, `git`, and `curl`.
 - Repo-managed dotfiles symlinked into `~`: `.zshrc`, `.p10k.zsh`, `.vimrc`,
   `.inputrc`, `.fastfetch.jsonc`
 
+## Quick install
+
+```sh
+git clone --depth 1 https://github.com/GwylimWilliams/shell-setup.git ~/.shell-setup \
+  && bash ~/.shell-setup/clean-install-zsh.sh
+```
+
+> **This will:**
+> - Shallow-clone the repo (latest commit only) into `~/.shell-setup`
+> - Back up your current setup to `~/zsh-backup-<timestamp>`, then clean and
+>   reinstall Oh My Zsh, powerlevel10k, the plugins, mise, and the MesloLGS
+>   Nerd Font
+> - Symlink the repo's dotfiles into `~` (`.zshrc`, `.p10k.zsh`, `.vimrc`,
+>   `.inputrc`, `.fastfetch.jsonc`)
+> - Leave `~/.zsh_history`, `~/.config/mise`, and your toolchains untouched
+
+Requires `zsh`, `git`, and `curl` already installed — on a fresh machine,
+install those first (the script prints the exact command if any are missing),
+then re-run.
+
 ## Repo layout
 
 ```
