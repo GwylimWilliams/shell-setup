@@ -1,0 +1,76 @@
+#compdef journalctl
+#autoload
+
+# _journalctl — override for journalctl completion.
+#
+# Problem: the stock zsh _journalctl completes -u/--unit by running
+# `journalctl --user -F _SYSTEMD_UNIT`, i.e. it lists distinct values of the
+# _SYSTEMD_UNIT field found in the journal. Two things break for user units:
+#   1. User services are journaled under _SYSTEMD_USER_UNIT / USER_UNIT, NOT
+#      _SYSTEMD_UNIT — so even services that have logged never get offered.
+#   2. It only lists units that already wrote to the journal — a quadlet
+#      service (~/.config/containers/systemd/*.container) that hasn't logged
+#      yet can't be completed at all.
+#
+# Fix: in --user mode (and for --user-unit), complete from
+# `systemctl --user list-unit-files` — which includes quadlet-generated
+# services — and keep the stock behaviour for everything else.
+#
+# Implementation: the stock file guards each helper with
+# `(( $+functions[_journalctl_field_values] )) ||` so a pre-defined helper
+# wins. We define the fixed _journalctl_field_values below, then source the
+# system _journalctl (found via fpath, skipping this file) to run the real
+# argument spec with our helper in place.
+
+(( $+functions[_journalctl_field_values] )) ||
+_journalctl_field_values() {
+    local -a _fields cmd
+    local field=${@[-1]}
+
+    # --user-unit (field USER_UNIT) always means user units; -u/--unit (field
+    # _SYSTEMD_UNIT) means user units when --user is on the command line.
+    if [[ $field == USER_UNIT ]] || \
+       { [[ $field == _SYSTEMD_UNIT ]] && (( ${_sys_service_mgr[(I)--user]} )) }; then
+        local -a _units _entries parts
+        local line name state
+        # list-unit-files (NOT -F _SYSTEMD_UNIT): includes quadlet "generated"
+        # units regardless of whether they have ever logged.
+        _units=( ${(f)"$(systemctl --user list-unit-files --no-legend --no-pager 2>/dev/null)"} )
+        for line in $_units; do
+            # NOTE: zsh does not word-split on assignment (unlike bash) — must
+            # force it with the (s: :) flag, otherwise $line stays a single
+            # element and the filter below never matches.
+            parts=(${(s: :)line})
+            name=$parts[1]
+            state=$parts[2]
+            # Only unit types that carry journal output. Use a regex (=~) rather
+            # than a glob alternation so it works regardless of extendedglob.
+            [[ $name =~ '\.(service|socket|timer|path|target)$' ]] || continue
+            _entries+=("${name//:/\\:}:$state")
+        done
+        if (( ${#_entries} )); then
+            typeset -U _entries
+            _describe 'units' _entries
+            return
+        fi
+    fi
+
+    # Stock behaviour for every other field (e.g. PRIORITY, SYSLOG_IDENTIFIER).
+    cmd=("journalctl $_sys_service_mgr" "-F ${@[-1]}" "2>/dev/null" )
+    _fields=$(_call_program fields $cmd[@])
+    _fields=${_fields//'\'/'\\'}
+    _fields=${_fields//':'/'\:'}
+    _fields=( ${(f)_fields} )
+    typeset -U _fields
+    _describe 'possible values' _fields
+}
+
+# Run the stock completion; its argument spec calls _journalctl_field_values,
+# which is now our fixed version (guarded so the stock file keeps it).
+local _j_src _self=${${(%):-%x}:A}
+for _j_src in ${^fpath}/_journalctl(N); do
+    [[ ${_j_src:A} == $_self ]] && continue
+    source $_j_src
+    return
+done
+_message 'journalctl: system completion file not found'

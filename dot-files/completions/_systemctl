@@ -1,0 +1,47 @@
+#compdef systemctl
+#autoload
+
+# _systemctl — override for systemctl completion.
+#
+# Problem: the stock _systemctl completes `restart` / `reload-or-restart` via
+# _systemctl_restartable_units, which queries
+#   systemctl list-unit-files --state enabled,disabled,static
+# That state list EXCLUDES `generated` — the exact state quadlet units
+# (~/.config/containers/systemd/*.container → *.service) are registered with
+# the user manager. So `systemctl --user restart <TAB>` never offers them
+# (while `start` works, because _systemctl_startable_units already includes
+# `generated` in its state list). Generated units do pass the CanStart=yes
+# property filter, so adding the state is sufficient.
+#
+# Fix: pre-define _systemctl_restartable_units with the same generous state
+# list used by the startable filter, then delegate everything else to the
+# stock completion.
+#
+# Implementation: same pattern as the repo's _journalctl override — the stock
+# file guards each helper with `(( $+functions[...] )) ||`, so a pre-defined
+# helper wins. We define the fixed one below, then source the system
+# _systemctl (found via fpath, skipping this file).
+
+(( $+functions[_systemctl_restartable_units] )) ||
+_systemctl_restartable_units(){
+    local pattern
+    if zstyle -T ":completion:$curcontext" use-pattern; then
+        pattern="$PREFIX*$SUFFIX"
+    fi
+    # Same state list as _systemctl_startable_units: includes generated +
+    # transient so quadlet services appear for restart too.
+    _sys_restartable_units=( $( _filter_units_by_property CanStart yes ${${${(f)"$(
+    __systemctl list-unit-files --state enabled,enabled-runtime,linked,linked-runtime,static,indirect,disabled,generated,transient $pattern
+    __systemctl list-units $pattern
+  )"}:#*@.*}%%[[:space:]]*} ) )
+}
+
+# Run the stock completion; its restart dispatch calls _systemctl_restartable_units,
+# which is now our fixed version (guarded so the stock file keeps it).
+local _j_src _self=${${(%):-%x}:A}
+for _j_src in ${^fpath}/_systemctl(N); do
+    [[ ${_j_src:A} == $_self ]] && continue
+    source $_j_src
+    return
+done
+_message 'systemctl: system completion file not found'

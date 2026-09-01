@@ -1,0 +1,142 @@
+#autoload
+
+# _g — completion for `g` (bin/g gradle wrapper) and gradlew/./gradlew.
+#
+# Task names come from the project's own gradlew (found by walking up
+# from the CWD, like bin/g does) — no system gradle needed. The task
+# list mirrors `g tasks` (root-project runnable tasks, the grouped
+# report) — NOT `tasks --all`, which dumps every task of every
+# subproject. The task list is cached in ~/.gradle/completion so the
+# menu appears on the FIRST tab (OMZ's _gradle only describes on the
+# second, which reads as "no completion"). If generation fails (no
+# java, broken wrapper, ...) the built-in task list is offered and the
+# next TAB retries. Flags and option values are delegated to OMZ's
+# _gradle completion.
+#
+# Bound in the common zshrc: compdef _g g gradlew gw
+
+__g_project_root() {
+  local dir=$PWD
+  while [[ $dir != / ]]; do
+    if [[ -f $dir/settings.gradle || -f $dir/settings.gradle.kts || -x $dir/gradlew ||
+          -f $dir/build.gradle || -f $dir/build.gradle.kts ]]; then
+      print -r -- $dir
+      return 0
+    fi
+    dir=${dir:h}
+  done
+  return 1
+}
+
+__g_builtin_tasks() {
+  local -a builtin_tasks=(
+    'buildEnvironment:Displays all buildscript dependencies declared in root project.'
+    'components:Displays the components produced by root project.'
+    'dependencies:Displays all dependencies declared in root project.'
+    'dependencyInsight:Displays the insight into a specific dependency in root project.'
+    'dependentComponents:Displays the dependent components of components in root project.'
+    'help:Displays a help message.'
+    'init:Initializes a new Gradle build.'
+    'model:Displays the configuration model of root project.'
+    'projects:Displays the sub-projects of root project.'
+    'properties:Displays the properties of root project.'
+    'tasks:Displays the tasks runnable from root project.'
+    'wrapper:Generates Gradle wrapper files.'
+  )
+  _describe 'built-in tasks' builtin_tasks
+}
+
+__g_task_list() {
+  # Runs the project's gradlew (or `gradle` as a last resort) and prints
+  # the `task - description` lines of `tasks` — the same curated list
+  # `g tasks` shows. Group headers, separators and Gradle's notice lines
+  # don't match the parse regex below, so they're skipped.
+  local root=$1 cmd=gradle
+  [[ -x $root/gradlew ]] && cmd=$root/gradlew
+  ( cd $root && $cmd --console=plain -q tasks 2>/dev/null )
+}
+
+__g_tasks() {
+  local root=$1 ret=1
+  local cache_dir=${GRADLE_USER_HOME:-$HOME/.gradle}/completion
+  mkdir -p $cache_dir
+
+  # Cache key: project root + mtimes of the build scripts, so adding a
+  # task invalidates the cache without running gradle twice. The "2"
+  # prefix versions the key: bump it if the generated list format
+  # changes, so stale caches (e.g. from `tasks --all`) regenerate once.
+  local -a scripts
+  local f
+  for f in $root/settings.gradle $root/settings.gradle.kts \
+           $root/build.gradle $root/build.gradle.kts; do
+    [[ -f $f ]] && scripts+=($f)
+  done
+  local checksum
+  if (( ${#scripts} )); then
+    if command -v md5sum >/dev/null 2>&1; then
+      checksum=$(print -r -- "2 $(ls -l $scripts 2>/dev/null)" | md5sum | awk '{print $1}')
+    else
+      checksum=$(md5 -q -s "2 $(ls -l $scripts 2>/dev/null)")
+    fi
+  else
+    checksum=none
+  fi
+
+  local cache_file=$cache_dir/g_${root//[^[:alnum:]]/_}
+  if [[ -n $root && ( ! -f $cache_file.md5 || $(< $cache_file.md5) != $checksum ) ]]; then
+    zle -R "Generating Gradle task list..."
+    local -a tasks match
+    local line name desc
+    for line in ${(f)"$(__g_task_list $root)"}; do
+      if [[ $line =~ '^:?([[:alpha:]][[:alnum:][:punct:]]*)([[:space:]]-[[:space:]]([[:print:]]*))?$' ]]; then
+        name=${match[1]}
+        desc=${match[3]}
+        # Subproject tasks (app:assemble) get a leading-colon variant too.
+        if [[ $name == *:* ]]; then
+          tasks+=("${name//:/\\:}:$desc" "\\:${name//:/\\:}:$desc")
+        else
+          tasks+=("${name//:/\\:}:$desc")
+        fi
+      fi
+    done
+    if (( ${#tasks} )); then
+      print -rl -- $tasks >| $cache_file
+      print -r -- $checksum >| $cache_file.md5
+    else
+      # print with no args would write a lone newline, which -s would treat
+      # as a valid cache. Leave an empty file so the fallback kicks in.
+      : >| $cache_file
+      rm -f $cache_file.md5   # generation failed: retry on the next TAB
+    fi
+  fi
+
+  local -a tasks
+  if [[ -s $cache_file ]]; then
+    tasks=(${(f)"$(<$cache_file)"})
+    _describe 'all tasks' tasks && ret=0
+  else
+    __g_builtin_tasks && ret=0
+  fi
+  return $ret
+}
+
+_g() {
+  local cur=$words[CURRENT]
+
+  # Flags and option values: OMZ's _gradle carries the full option list.
+  if [[ $cur == -* ]]; then
+    (( $+functions[_gradle] )) && _gradle
+    return $?
+  fi
+
+  local root
+  root=$(__g_project_root)
+  if [[ -z $root ]]; then
+    # No gradle project here (no settings/build file, no wrapper): offer the
+    # built-in task list so the first TAB always shows something.
+    __g_builtin_tasks
+    return $?
+  fi
+
+  __g_tasks $root
+}
