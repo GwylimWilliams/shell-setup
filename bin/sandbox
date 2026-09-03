@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+
+
+
+exec bwrap \
+    --ro-bind / / \
+    --tmpfs /tmp \
+    --proc /proc \
+    --dev /dev \
+    --ro-bind /sys /sys \
+    --unshare-net \
+    --unshare-ipc \
+    --unshare-pid \
+    --die-with-parent \
+    --setenv PYTHONDONTWRITEBYTECODE 1 \
+    "$@"
