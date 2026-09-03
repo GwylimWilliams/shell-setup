@@ -21,7 +21,6 @@
     "memory",
     "swap",
     "disk",
-    "publicip",
     "localip",
     "dns",
     "break"
