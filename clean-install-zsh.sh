@@ -418,6 +418,29 @@ mise_target() {
   printf '%s-%s' "$os" "$arch"
 }
 
+# Ensure a key exists under [settings] in the global mise config: create the
+# file if missing, otherwise insert the key below [settings] (creating the
+# section if needed) so other user settings (e.g. trusted_config_paths) are
+# never clobbered. Machine-local overrides go in
+# ~/.config/mise/config.local.toml (untracked).
+ensure_mise_setting() {
+  local cfg="$1" key="$2" line="$3"
+  if [ ! -f "$cfg" ]; then
+    mkdir -p "$(dirname "$cfg")"
+    printf '[settings]\n%s\n' "$line" > "$cfg"
+    echo "  wrote $cfg ($line)"
+  elif ! grep -qE "^[[:space:]]*${key}([[:space:]]|=|$)" "$cfg"; then
+    if grep -q '^[[:space:]]*\[settings\]' "$cfg"; then
+      awk -v line="$line" '!done && /^[[:space:]]*\[settings\]/ { print; print line; done=1; next } { print }' "$cfg" > "$cfg.tmp" && mv "$cfg.tmp" "$cfg"
+    else
+      printf '\n[settings]\n%s\n' "$line" >> "$cfg"
+    fi
+    echo "  set $line in $cfg"
+  else
+    echo "  $cfg already sets $key"
+  fi
+}
+
 install_mise() {
   local mise_bin="$HOME/.local/bin/mise"
   if [ -x "$mise_bin" ] && "$mise_bin" --version 2>/dev/null | grep -Fq "$MISE_VERSION"; then
@@ -440,28 +463,15 @@ install_mise() {
   mkdir -p "$HOME/.local/share/mise/completions"
   "$mise_bin" completion zsh > "$HOME/.local/share/mise/completions/_mise" || true
 
-  # idiomatic version files (.java-version, .nvmrc, .node-version,
-  # .python-version) are read only for opt-in tools. Ensure the global config
-  # enables java/node/python: create the file if missing, otherwise insert the
-  # key under [settings] (creating the section if needed) so other user
-  # settings (e.g. trusted_config_paths) are never clobbered. Machine-local
-  # overrides go in ~/.config/mise/config.local.toml (untracked).
+  # [settings] keys for the global config. Idiomatic version files
+  # (.java-version, .nvmrc, .node-version, .python-version) are read only for
+  # opt-in tools; env_cache=true stops hook-env from re-sourcing env files
+  # (e.g. the .envrc _.source) on every shell hook — the cache is invalidated
+  # on config/tool/settings changes and edited source files (TTL: 1h default).
   local cfg="$HOME/.config/mise/config.toml"
-  local idiom='idiomatic_version_file_enable_tools = ["java", "node", "python"]'
-  if [ ! -f "$cfg" ]; then
-    mkdir -p "$(dirname "$cfg")"
-    printf '[settings]\n%s\n' "$idiom" > "$cfg"
-    echo "  wrote $cfg ($idiom)"
-  elif ! grep -q '^[[:space:]]*idiomatic_version_file_enable_tools' "$cfg"; then
-    if grep -q '^[[:space:]]*\[settings\]' "$cfg"; then
-      awk -v line="$idiom" '!done && /^[[:space:]]*\[settings\]/ { print; print line; done=1; next } { print }' "$cfg" > "$cfg.tmp" && mv "$cfg.tmp" "$cfg"
-    else
-      printf '\n[settings]\n%s\n' "$idiom" >> "$cfg"
-    fi
-    echo "  set $idiom in $cfg"
-  else
-    echo "  $cfg already sets idiomatic_version_file_enable_tools"
-  fi
+  ensure_mise_setting "$cfg" idiomatic_version_file_enable_tools \
+    'idiomatic_version_file_enable_tools = ["java", "node", "python"]'
+  ensure_mise_setting "$cfg" env_cache 'env_cache = true'
 
   # GitHub CLI — global tool so `gh` is available everywhere. mise use -g
   # installs it (aqua backend) and pins it in the global config's [tools].

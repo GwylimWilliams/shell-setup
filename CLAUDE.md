@@ -71,6 +71,15 @@ macOS. See README.md for user-facing docs.
   `idiomatic_version_file_enable_tools = ["java", "node", "python"]`, set in
   the global config by `clean-install-zsh.sh` (create-if-missing / insert
   under `[settings]` — user settings are never clobbered).
+- **`env_cache = true`** is set in the global config by
+  `clean-install-zsh.sh` (same insert-under-`[settings]` mechanism). It makes
+  `mise hook-env` serve the computed env from a disk cache instead of
+  re-sourcing env files (e.g. a trusted `.envrc` `_.source`) on every shell
+  hook — several hook-env calls fire per cd (activation chpwd +
+  `_mise_bootstrap_envrc` + `_mise_auto_install`). Invalidation: config/tool/
+  settings/mise-version changes and edited `_.source`d files; TTL
+  `env_cache_ttl` (default 1h). Opt out per machine with `env_cache = false`
+  in `config.local.toml`; per-directive opt-out is `cacheable = false`.
 - **Global config** at `~/.config/mise/config.toml`; machine-local overrides
   go in `~/.config/mise/config.local.toml` (untracked — the analog of
   `.zshrc-local`). A `mise.toml` with `[env]`/`_.source` is untrusted by
