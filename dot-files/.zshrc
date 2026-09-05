@@ -26,6 +26,9 @@ fi
 # Set up local and home bin in the path:
 PATH=~/.bin:~/.local/bin:$PATH
 
+# Make ls not ugly on mac:
+export LSCOLORS=ExGxFxdxCxDxDxxbaDecac
+
 # ── your personal additions ──────────────────────────────────────
 
 # Tab on an empty line runs ls instead of inserting a literal tab
