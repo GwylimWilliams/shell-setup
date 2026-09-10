@@ -1,8 +1,121 @@
 # Repo-managed starship config — symlinked to ~/.config/starship.toml by
-# clean-install-zsh.sh. Anything not set here stays at starship's defaults
-# (https://starship.rs/config/). Customise interactively with: starship config
+# clean-install-zsh.sh. Replicates the old powerlevel10k "lean" prompt: one
+# line, no blank line, concise wording, grey user@host, blue directory, green
+# git branch; right side: command duration, jobs, time.
+#
+# Colours are the old .p10k.zsh ANSI-256 indices converted to hex:
+#   244=#808080  31=#0087AF  39=#00AFFF  76=#5FD700  178=#D7AF00
+#   66=#5F8787  101=#87875F  70=#5FAF00  196=#FF0000  208=#FF8700
+# Deviations from p10k (starship limitations): the hostname carries no local
+# icon (only the SSH one), and git's deleted/renamed files are counted
+# separately instead of folding into "!"/"+" like p10k did.
+# Customise interactively with: starship config
 
-# Hostname module: shown only over SSH (starship's default).  is the
-# Nerd Font "remote desktop" glyph; the default symbol is a globe.
+"$schema" = 'https://starship.rs/config-schema.json'
+
+add_newline = false
+# Explicit segment list — p10k showed user, hostname, dir, vcs, prompt_char;
+# its language-version segments were disabled, so none are listed here.
+# ${custom.git_forge} supplies the vcs segment's leading icon (braces are
+# required because the module name contains a dot).
+format = "$username$hostname$directory${custom.git_forge}$git_branch$git_status$character"
+right_format = "$cmd_duration$jobs$time"
+
+[username]
+show_always = true
+style_user = "#808080"
+format = "[$user]($style) "
+
 [hostname]
+ssh_only = false
+# U+F498 (nf-md-remote-desktop) — rendered only over SSH, in p10k's orange.
 ssh_symbol = " "
+style = "#808080"
+format = "[$ssh_symbol](#FF8700)[$hostname]($style) "
+
+[directory]
+style = "#0087AF"
+before_repo_root_style = "#0087AF"
+# p10k's "anchor" directories: bold bright blue.
+repo_root_style = "bold #00AFFF"
+# p10k showed the full path while it fit (~80 columns); keep the pre-repo
+# part visible and shorten only when long.
+truncate_to_repo = false
+truncation_length = 5
+# U+F023 lock (p10k's), not the starship emoji.
+read_only = ""
+read_only_style = "#0087AF"
+
+[custom.git_forge]
+# p10k replaced the branch icon with the forge's icon when the repo's origin
+# is on a known host; the code-fork (U+F126) stays otherwise. Starship has
+# no built-in forge icons, so this shells out to git: two subprocesses per
+# prompt inside a repo. Drop this block and restore the git_branch symbol if
+# that cost matters.
+format = "([$output](#5FD700) )"
+# Custom modules default to when = false (hidden) — the command itself stays
+# quiet outside a repo, and the conditional format hides the empty output.
+when = true
+command = '''
+git rev-parse --git-dir >/dev/null 2>&1 || exit 0
+url=$(git remote get-url origin 2>/dev/null)
+case "$url" in
+  *github*)    printf '\357\204\223' ;;  # U+F113 github-alt
+  *gitlab*)    printf '\357\212\226' ;;  # U+F296 gitlab
+  *bitbucket*) printf '\356\234\203' ;;  # U+E703 bitbucket
+  *)           printf '\357\204\246' ;;  # U+F126 code-fork fallback
+esac
+'''
+
+[git_branch]
+style = "#5FD700"
+# p10k truncated long branch names.
+truncation_length = 32
+format = "[$branch(:$remote_branch)]($style) "
+
+[git_status]
+# Per-symbol colours come from the format (each variable gets its own style,
+# as in p10k): ahead/behind + stash green, conflicts red, staged/modified
+# yellow, untracked blue. Symbols carry $count because p10k always printed
+# file counts (+1 !2 ?3) — starship omits them unless the symbol asks.
+format = "([$ahead_behind](#5FD700)[$stashed](#5FD700)[$conflicted](#FF0000)[$renamed]($style)[$staged]($style)[$modified]($style)[$deleted]($style)[$untracked](#00AFFF))"
+style = "#D7AF00"
+stashed = "*$count "
+conflicted = "~$count "
+renamed = "»$count "
+staged = "+$count "
+modified = "!$count "
+deleted = "!$count "
+untracked = "?$count "
+ahead = "⇡$count "
+behind = "⇣$count "
+# p10k showed both counts on divergence: ⇣42⇡42.
+diverged = "⇣$behind_count⇡$ahead_count "
+
+[character]
+success_symbol = "[❯](#5FD700)"
+error_symbol = "[❯](#FF0000)"
+vimcmd_symbol = "[❮](#5FD700)"
+vimcmd_visual_symbol = "[V](#5FD700)"
+vimcmd_replace_symbol = "[▶](#5FD700)"
+vimcmd_replace_one_symbol = "[▶](#5FD700)"
+
+[cmd_duration]
+# p10k threshold was 3s and it printed no "took" wording.
+min_time = 3000
+style = "#87875F"
+format = "[$duration]($style) "
+
+[jobs]
+# U+F013 (cog), p10k's icon. p10k showed the icon only (VERBOSE=false), so
+# the number threshold is effectively unreachable.
+symbol = " "
+style = "#5FAF00"
+number_threshold = 99
+format = "[$symbol$number]($style) "
+
+[time]
+disabled = false
+style = "#5F8787"
+# 24h with seconds (p10k: %D{%H:%M:%S}) comes from use_12hr = false.
+format = "[$time]($style) "
