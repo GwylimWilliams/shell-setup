@@ -1,7 +1,7 @@
 # Repo-managed starship config — symlinked to ~/.config/starship.toml by
 # clean-install-zsh.sh. Replicates the old powerlevel10k "lean" prompt: one
 # line, no blank line, concise wording, grey user@host, blue directory, green
-# git branch; right side: command duration, jobs, time.
+# git branch; right side: command duration, jobs, tool versions, time.
 #
 # Colours are the old .p10k.zsh ANSI-256 indices converted to hex:
 #   244=#808080  31=#0087AF  39=#00AFFF  76=#5FD700  178=#D7AF00
@@ -19,7 +19,8 @@ add_newline = false
 # ${custom.git_forge} supplies the vcs segment's leading icon (braces are
 # required because the module name contains a dot).
 format = "$username$hostname$directory${custom.git_forge}$git_branch$git_status$character"
-right_format = "$cmd_duration$jobs$time"
+# Tool versions (java/node/python, as mise activates them) sit before the time.
+right_format = "$cmd_duration$jobs$nodejs$python$java$time"
 
 [username]
 show_always = true
@@ -119,3 +120,26 @@ disabled = false
 style = "#5F8787"
 # 24h with seconds (p10k: %D{%H:%M:%S}) comes from use_12hr = false.
 format = "[$time]($style) "
+
+# ── tool versions (mise) ────────────────────────────────────────
+# The p10k asdf segment, recreated: tool icon + version on the right in its
+# steel-blue (#5F8787), no "via". Detection is project-file based; the
+# version itself comes from the tool on PATH — whatever mise activated here.
+
+[nodejs]
+symbol = " "
+style = "#5F8787"
+version_format = "${raw}"
+format = '[$symbol($version )]($style) '
+
+[python]
+symbol = " "
+style = "#5F8787"
+version_format = "${raw}"
+format = '[${symbol}(${version} )(\($virtualenv\) )]($style) '
+
+[java]
+symbol = " "
+style = "#5F8787"
+version_format = "${raw}"
+format = '[$symbol($version )]($style) '
