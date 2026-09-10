@@ -20,7 +20,7 @@ add_newline = false
 # required because the module name contains a dot).
 format = "$username$hostname$directory${custom.git_forge}$git_branch$git_status$character"
 # Tool versions (java/node/python, as mise activates them) sit before the time.
-right_format = "$cmd_duration$jobs$nodejs$python$java$time"
+right_format = "$cmd_duration$jobs${custom.mise_tools}$time"
 
 [username]
 show_always = true
@@ -121,25 +121,29 @@ style = "#5F8787"
 # 24h with seconds (p10k: %D{%H:%M:%S}) comes from use_12hr = false.
 format = "[$time]($style) "
 
+
 # ── tool versions (mise) ────────────────────────────────────────
-# The p10k asdf segment, recreated: tool icon + version on the right in its
-# steel-blue (#5F8787), no "via". Detection is project-file based; the
-# version itself comes from the tool on PATH — whatever mise activated here.
+# The p10k asdf segment, recreated from mise itself: `mise current` reports
+# the versions applied for this directory (from .tool-versions, mise.toml or
+# idiomatic files), reduced to the major number (corretto-21.0.6.7 -> 21),
+# in #5F8787 like the rest of the right prompt. Globals such as gh are
+# filtered out by the case — add case lines (p10k's icons) to show more.
 
-[nodejs]
-symbol = " "
-style = "#5F8787"
-version_format = "${raw}"
-format = '[$symbol($version )]($style) '
-
-[python]
-symbol = " "
-style = "#5F8787"
-version_format = "${raw}"
-format = '[${symbol}(${version} )(\($virtualenv\) )]($style) '
-
-[java]
-symbol = " "
-style = "#5F8787"
-version_format = "${raw}"
-format = '[$symbol($version )]($style) '
+[custom.mise_tools]
+format = "([$output](#5F8787) )"
+when = true
+command = '''
+entry() {  # <icon-octal> <version> — major number only: corretto-21.0.6.7 -> 21
+  major=$(printf '%s\n' "$2" | sed -n 's/^[^0-9]*\([0-9][0-9]*\).*/\1/p')
+  [ -n "$major" ] || return 0
+  printf "$1 %s " "$major"
+}
+mise current 2>/dev/null | while read -r tool ver; do
+  case "$tool" in
+    node*)   entry '\356\230\227' "$ver" ;;  # U+E617 nodejs
+    python*) entry '\356\234\274' "$ver" ;;  # U+E73C python
+    java)    entry '\356\234\270' "$ver" ;;  # U+E738 java
+    *) ;;
+  esac
+done
+'''
