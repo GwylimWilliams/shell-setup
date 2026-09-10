@@ -7,9 +7,8 @@
 # Usage:
 #   bash clean-install-zsh.sh                     # backup + clean + install
 #   bash clean-install-zsh.sh --backup-only       # just back up, change nothing
-#   bash clean-install-zsh.sh --keep-config       # remove OMZ/plugins/p10k, keep dotfiles
+#   bash clean-install-zsh.sh --keep-config       # remove OMZ/plugins, keep dotfiles
 #   bash clean-install-zsh.sh --set-default       # chsh to zsh (no prompt)
-#   bash clean-install-zsh.sh --restore-p10k      # restore ~/.p10k.zsh from backup
 #   bash clean-install-zsh.sh --skip-packages     # skip the package presence check
 #   bash clean-install-zsh.sh --skip-fonts        # skip the Nerd Font install
 #
@@ -21,7 +20,8 @@
 # Fresh-machine behaviour: required commands (zsh, git, curl) and a Nerd Font
 # (MesloLGS NF) are checked up front. If any are missing, the script prints the
 # install command and exits — run it, then re-run this script. Everything else
-# (Oh My Zsh, plugins, p10k) is pulled from git.
+# (Oh My Zsh, plugins) is cloned from git; mise and starship are pinned
+# precompiled binaries.
 
 # ════════════════════════════════════════════════════════════════════
 # CONFIG — edit these at the top before running
@@ -33,8 +33,9 @@
 
 # Commands the recipe needs on a fresh machine. The script checks these and
 # prints the install command + exits if any are missing. zsh is the only real
-# package; git + curl are needed to fetch the repos and Nerd Font. Oh My Zsh,
-# plugins and p10k are all cloned from git, so they need no distro packages.
+# package; git + curl are needed to fetch the repos, binaries and Nerd Font.
+# Oh My Zsh and the plugins are cloned from git, and mise/starship are
+# precompiled binaries, so they need no distro packages.
 REQUIRED_PACKAGES=(
   zsh
   git
@@ -43,15 +44,12 @@ REQUIRED_PACKAGES=(
 
 # Optional tools: the install never fails if these are missing, but their
 # install command is printed so you can add them when you want. fastfetch
-# prints the system banner on every new shell (see the top of <repo>/zshrc —
-# the banner must run before the p10k instant prompt or it trips the
-# console-output warning, so it can't live in the dot-files/.zshrc personal
-# additions).
+# prints the system banner on every new shell (see the top of <repo>/zshrc).
 OPTIONAL_PACKAGES=(
   fastfetch
 )
 
-# Nerd Font(s) for p10k icons. The installer downloads a weight only if its
+# Nerd Font(s) for starship glyphs. The installer downloads a weight only if its
 # file is absent from ~/.local/share/fonts (or ~/Library/Fonts on macOS).
 # Add other Nerd Font families (e.g. "FiraCode Nerd Font") here if you prefer
 # a different terminal font.
@@ -64,7 +62,13 @@ REQUIRED_FONTS=(
 # dot-files/.zshrc is a thin wrapper that sources the static top-level
 # `zshrc` — never write directly to ~/.zshrc in this script, it would
 # clobber the symlink.
-LINKED_DOTFILES=(.vimrc .inputrc .p10k.zsh .zshrc .fastfetch.jsonc)
+LINKED_DOTFILES=(.vimrc .inputrc .zshrc .fastfetch.jsonc)
+
+# Repo-managed config files: symlinked to $XDG_CONFIG_DIR/<name> (created if
+# missing). Same contract as LINKED_DOTFILES — targets resolve against this
+# script's own location (dot-files/<name>); a real file at the target is
+# backed up before linking, a symlink is not.
+LINKED_CONFIG_FILES=(starship.toml)
 
 # Git-based zsh extras — cloned into $PLUGIN_DIR instead of installed via the
 # distro package manager, so the same script works on Arch, Ubuntu and macOS.
@@ -81,6 +85,12 @@ COMPLETIONS_REPO="https://github.com/zsh-users/zsh-completions"
 # to upgrade: bump it, re-run the script. Java, python and node are core
 # plugins — no plugin installs needed.
 MISE_VERSION="2026.8.14"
+
+# starship — cross-shell prompt, installed as a pinned precompiled binary
+# into ~/.local/bin (already on PATH via dot-files/.zshrc). Pin
+# STARSHIP_VERSION to upgrade: bump it, re-run the script. Its config is
+# dot-files/starship.toml → ~/.config/starship.toml (LINKED_CONFIG_FILES).
+STARSHIP_VERSION="1.26.0"
 
 # GitHub CLI — installed as a global mise tool so `gh` is on PATH everywhere
 # (mise activate). Uses the aqua backend (official cli/cli release binaries),
@@ -104,7 +114,6 @@ set -euo pipefail
 DO_CHSH=0
 BACKUP_ONLY=0
 KEEP_CONFIG=0
-RESTORE_P10K=0
 SKIP_PACKAGES=0
 SKIP_FONTS=0
 
@@ -113,10 +122,9 @@ for arg in "$@"; do
     --backup-only)   BACKUP_ONLY=1 ;;
     --keep-config)   KEEP_CONFIG=1 ;;
     --set-default)   DO_CHSH=1 ;;
-    --restore-p10k)  RESTORE_P10K=1 ;;
     --skip-packages) SKIP_PACKAGES=1 ;;
     --skip-fonts)    SKIP_FONTS=1 ;;
-    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
     *) echo "Unknown option: $arg" >&2; exit 1 ;;
   esac
 done
@@ -128,8 +136,8 @@ done
 STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_DIR="$HOME/zsh-backup-$STAMP"
 OMZ_DIR="$HOME/.oh-my-zsh"
-P10K_DIR="$OMZ_DIR/custom/themes/powerlevel10k"
-P10K_CONFIG="$HOME/.p10k.zsh"
+STARSHIP_BIN="$HOME/.local/bin/starship"
+XDG_CONFIG_DIR="$HOME/.config"
 # ~/.zshrc is repo-managed (LINKED_DOTFILES); the rest are loose dotfiles.
 # .zsh_history is deliberately absent: it's user data, not config — a rebuild
 # must not wipe command history (autosuggestions/history-search read it), and
@@ -164,6 +172,14 @@ backup() {
       cp -a "$HOME/$f" "$BACKUP_DIR/" && { echo "  ✓ ~/$f"; found=1; }
     fi
   done
+  # repo-managed config files (~/.config/<name>): same rule, backed up under
+  # config/ in the backup dir
+  for f in "${LINKED_CONFIG_FILES[@]}"; do
+    if [ -f "$XDG_CONFIG_DIR/$f" ] && [ ! -L "$XDG_CONFIG_DIR/$f" ]; then
+      mkdir -p "$BACKUP_DIR/config"
+      cp -a "$XDG_CONFIG_DIR/$f" "$BACKUP_DIR/config/" && { echo "  ✓ ~/.config/$f"; found=1; }
+    fi
+  done
   # repo-managed bin scripts: same rule — real files at ~/.bin targets get
   # backed up, symlinks are skipped (they point at the repo already)
   for src in "$BIN_DIR"/*; do
@@ -176,9 +192,6 @@ backup() {
   if [ -d "$OMZ_DIR" ]; then
     cp -a "$OMZ_DIR" "$BACKUP_DIR/oh-my-zsh" && { echo "  ✓ ~/.oh-my-zsh"; found=1; }
   fi
-  for d in "$HOME"/.cache/p10k-*; do
-    [ -e "$d" ] && cp -a "$d" "$BACKUP_DIR/" && { echo "  ✓ $(basename "$d")"; found=1; }
-  done
   [ "$found" -eq 1 ] || echo "  (nothing to back up — fresh machine?)"
   echo "  Backup complete: $BACKUP_DIR"
 }
@@ -267,7 +280,7 @@ check_sources() {
   echo "  Plugin source files present"
 }
 
-# 3b. Nerd Font — install MesloLGS NF if missing (p10k needs it for icons).
+# 3b. Nerd Font — install MesloLGS NF if missing (starship glyphs need it).
 # Downloads each weight only when that file is absent, so re-runs are cheap.
 install_fonts() {
   if [ "$SKIP_FONTS" -eq 1 ]; then
@@ -327,13 +340,20 @@ install_fonts() {
 clean() {
   log "Cleaning old shell stack"
   if [ "$KEEP_CONFIG" -eq 1 ]; then
-    echo "  --keep-config: leaving dotfiles in place (removing only OMZ + plugins + p10k)."
+    echo "  --keep-config: leaving dotfiles in place (removing only OMZ + plugins)."
   else
     for f in "${DOTFILES[@]}"; do
       [ -e "$HOME/$f" ] && rm -rf "$HOME/$f" && echo "  removed ~/$f"
     done
     for f in "${LINKED_DOTFILES[@]}"; do
       [ -e "$HOME/$f" ] && rm -rf "$HOME/$f" && echo "  removed ~/$f (repo-managed — relinking)"
+    done
+    # repo-managed config files — exact file paths only: ~/.config itself (and
+    # e.g. ~/.config/mise) is never touched
+    for f in "${LINKED_CONFIG_FILES[@]}"; do
+      if [ -e "$XDG_CONFIG_DIR/$f" ] || [ -L "$XDG_CONFIG_DIR/$f" ]; then
+        rm -rf "$XDG_CONFIG_DIR/$f" && echo "  removed ~/.config/$f (repo-managed — relinking)"
+      fi
     done
     # repo-managed bin scripts — removed so they get relinked; anything else
     # in ~/.bin is the user's own and is left alone
@@ -348,7 +368,6 @@ clean() {
   fi
   [ -d "$OMZ_DIR" ] && rm -rf "$OMZ_DIR" && echo "  removed ~/.oh-my-zsh"
   [ -d "$PLUGIN_DIR" ] && rm -rf "$PLUGIN_DIR" && echo "  removed ~/.zsh-plugins"
-  rm -rf "$HOME"/.cache/p10k-* 2>/dev/null || true
   echo "  Clean complete"
 }
 
@@ -363,15 +382,43 @@ install_omz() {
   fi
 }
 
-# 6. p10k
-install_p10k() {
-  mkdir -p "$(dirname "$P10K_DIR")"
-  if [ -d "$P10K_DIR/.git" ]; then
-    echo "  powerlevel10k present — updating"
-    (cd "$P10K_DIR" && git pull --ff-only) || echo "  (update skipped)"
+# 6. starship — cross-shell prompt, installed as a pinned precompiled binary
+# from GitHub releases (same style as mise).
+starship_target() {
+  local os="" arch=""
+  case "$(uname)" in
+    Darwin) os="apple-darwin" ;;
+    Linux)  os="unknown-linux-gnu" ;;
+    *) die "starship: unsupported OS: $(uname)" ;;
+  esac
+  case "$(uname -m)" in
+    x86_64|amd64)  arch="x86_64" ;;
+    aarch64|arm64) arch="aarch64" ;;
+    *) die "starship: unsupported architecture: $(uname -m)" ;;
+  esac
+  # starship publishes no aarch64-linux-gnu asset — arm64 Linux uses musl
+  if [ "$os" = "unknown-linux-gnu" ] && [ "$arch" = "aarch64" ]; then
+    os="unknown-linux-musl"
+  fi
+  printf '%s-%s' "$arch" "$os"
+}
+
+install_starship() {
+  if [ -x "$STARSHIP_BIN" ] && "$STARSHIP_BIN" --version 2>/dev/null | grep -Fq "$STARSHIP_VERSION"; then
+    echo "  starship $STARSHIP_VERSION present — skipping download"
   else
-    log "Cloning Powerlevel10k"
-    git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "$P10K_DIR"
+    log "Installing starship $STARSHIP_VERSION → $HOME/.local/bin"
+    local tarball="starship-$(starship_target).tar.gz"
+    local extract_dir
+    extract_dir="$(mktemp -d)"
+    mkdir -p "$HOME/.local/bin"
+    curl -Lfo "$HOME/.local/bin/$tarball" \
+      "https://github.com/starship/starship/releases/download/v${STARSHIP_VERSION}/$tarball"
+    tar -xzf "$HOME/.local/bin/$tarball" -C "$extract_dir"
+    mv "$extract_dir/starship" "$STARSHIP_BIN"
+    rm -rf "$extract_dir"
+    rm -f "$HOME/.local/bin/$tarball"
+    [ -x "$STARSHIP_BIN" ] || die "starship binary missing after extract: $STARSHIP_BIN"
   fi
 }
 
@@ -518,6 +565,40 @@ link_dotfiles() {
   done
 }
 
+# 6b2. repo-managed config files — symlinked into ~/.config from
+# repo/dot-files so edits are committable back to the repo, same as
+# link_dotfiles. Only the exact linked files are touched — ~/.config itself
+# is never cleared (mise's config lives there).
+link_configs() {
+  if [ "$KEEP_CONFIG" -eq 1 ]; then
+    echo "  --keep-config: leaving existing ~/.config files in place, skipping symlinks."
+    return
+  fi
+  log "Symlinking repo config files into ~/.config"
+  mkdir -p "$XDG_CONFIG_DIR"
+  local f src dest
+  for f in "${LINKED_CONFIG_FILES[@]}"; do
+    src="$DOTFILES_DIR/$f"
+    dest="$XDG_CONFIG_DIR/$f"
+    if [ ! -e "$src" ]; then
+      echo "  (skip) $f not in repo: $src"
+      continue
+    fi
+    if [ -L "$dest" ] && [ "$(readlink "$dest")" = "$src" ]; then
+      echo "  ✓ ~/.config/$f already linked"
+      continue
+    fi
+    # clean() normally removes these first; guard anyway so we never silently
+    # leave a stale link or clobber without saying so
+    if [ -e "$dest" ] || [ -L "$dest" ]; then
+      echo "  (replace) ~/.config/$f"
+      rm -rf "$dest"
+    fi
+    ln -s "$src" "$dest"
+    echo "  ✓ linked ~/.config/$f -> $src"
+  done
+}
+
 # 6c. repo-managed bin scripts — symlink repo/bin/* into ~/.bin (created if
 # missing) so edits are committable back to the repo, same as link_dotfiles
 link_bin() {
@@ -551,14 +632,6 @@ link_bin() {
   done
 }
 
-# 7. restore p10k config
-restore_p10k() {
-  if [ "$RESTORE_P10K" -eq 1 ] && [ -f "$BACKUP_DIR/.p10k.zsh" ]; then
-    cp -a "$BACKUP_DIR/.p10k.zsh" "$P10K_CONFIG"
-    echo "  restored ~/.p10k.zsh from backup"
-  fi
-}
-
 # 9. default shell
 set_default_shell() {
   command -v zsh >/dev/null 2>&1 || { echo "  zsh not found, skipping chsh"; return; }
@@ -582,28 +655,28 @@ main() {
   install_fonts
   clean
   install_omz
-  install_p10k
+  install_starship
   install_plugins
   install_mise
   link_dotfiles
+  link_configs
   link_bin
-  restore_p10k
   set_default_shell
 
   log "Done"
   echo "  Backup:        $BACKUP_DIR"
   echo "  zsh:           $(zsh --version 2>/dev/null | head -1 || echo 'not in PATH')"
   echo "  oh-my-zsh:     $OMZ_DIR"
-  echo "  powerlevel10k: $P10K_DIR"
+  echo "  starship:      $("$STARSHIP_BIN" --version 2>/dev/null | head -1)"
   echo
   echo "  Next:"
-  echo "   1. Start zsh and run:  p10k configure   (writes the prompt config to ~/.p10k.zsh)"
-  echo "      ~/.p10k.zsh is symlinked to $DOTFILES_DIR/.p10k.zsh, so the wizard's"
-  echo "      output is already tracked in the repo."
+  echo "   1. Start zsh — starship draws the prompt. Customise with:  starship config"
+  echo "      Presets:  starship preset --list     Docs:  https://starship.rs/config/"
+  echo "      ~/.config/starship.toml is symlinked to $DOTFILES_DIR/starship.toml,"
+  echo "      so your changes are tracked in the repo."
   echo "   2. If default shell wasn't changed:  chsh -s /usr/bin/zsh"
-  echo "   3. Log out & back in. Fish is untouched."
-  echo "   4. MesloLGS NF was installed if missing; select it as your terminal"
-  echo "      font (the p10k wizard also offers ASCII mode without icons)."
+  echo "   3. Log out & back in."
+  echo "   4. MesloLGS NF was installed if missing; select it as your terminal font."
   echo "   5. mise: in a project with a mise.toml that sets env, run:  mise trust"
   check_optional_packages
 }

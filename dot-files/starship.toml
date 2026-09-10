@@ -1,0 +1,8 @@
+# Repo-managed starship config — symlinked to ~/.config/starship.toml by
+# clean-install-zsh.sh. Anything not set here stays at starship's defaults
+# (https://starship.rs/config/). Customise interactively with: starship config
+
+# Hostname module: shown only over SSH (starship's default).  is the
+# Nerd Font "remote desktop" glyph; the default symbol is a globe.
+[hostname]
+ssh_symbol = " "

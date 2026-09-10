@@ -2,8 +2,8 @@
 # Sources the repo's top-level zshrc (static, hand-edited — NOT generated
 # by clean-install-zsh.sh) then applies your personal additions below.
 #
-# The top-level zshrc handles Oh My Zsh, plugins, extras, asdf and the
-# p10k config. Edit <repo>/zshrc directly for the managed setup; edit
+# The top-level zshrc handles Oh My Zsh, plugins, extras, mise and the
+# starship prompt. Edit <repo>/zshrc directly for the managed setup; edit
 # THIS file for anything personal — it's committed to the repo.
 
 # locate <repo>/zshrc relative to this file (dot-files/..)
@@ -17,7 +17,7 @@ unset __zsh_setup
 
 # ── machine-local overrides (untracked, e.g. per-host tweaks) ────
 # `if` (not `&&`) so a missing file leaves $?=0 — otherwise the last
-# command before the first prompt is non-zero and the p10k chevron
+# command before the first prompt is non-zero and starship's character
 # renders red on every new shell.
 if [[ -r ~/.zshrc-local ]]; then
   source ~/.zshrc-local

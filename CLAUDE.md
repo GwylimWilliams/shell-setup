@@ -6,17 +6,23 @@ macOS. See README.md for user-facing docs.
 ## Layout
 
 - `clean-install-zsh.sh` — the recipe: backup → clean → install dependencies.
-  CONFIG block at the top pins versions (mise), plugin repos, packages
-  and dotfiles. It never writes `zshrc`.
+  CONFIG block at the top pins versions (mise, starship), plugin repos,
+  packages and dotfiles. It never writes `zshrc`.
 - `updateRemoteShell.sh <target>` — scp the repo to a remote and re-run the
   install there.
+- `cleanup-legacy-p10k.sh` — standalone one-shot for machines that ran the
+  pre-starship installer: removes `~/.p10k.zsh` (backing up a real file
+  first) and `~/.cache/p10k-*`. Nothing in the repo references it; delete it
+  once no machine needs it.
 - `zshrc` — STATIC, hand-edited (not generated). This is where features are
   wired up; the install script only provides their dependencies.
 - `dot-files/` — repo-managed dotfiles, symlinked into `~`:
   - `.zshrc` — wrapper that sources `<repo>/zshrc` then personal additions.
     This is the file for personal shell tweaks. Machine-local overrides go in
     `~/.zshrc-local` (untracked).
-  - `.p10k.zsh`, `.vimrc`, `.inputrc`, `.fastfetch.jsonc`
+  - `.vimrc`, `.inputrc`, `.fastfetch.jsonc` — flat dotfiles (LINKED_DOTFILES).
+  - `starship.toml` — prompt config, symlinked to `~/.config/starship.toml`
+    (LINKED_CONFIG_FILES).
   - `completions/` — repo-managed zsh completion functions (e.g. `_g` for the
     g gradle wrapper); NOT symlinked, added to fpath by `zshrc`.
 - `bin/` — repo-managed scripts (e.g. `g`), symlinked into `~/.bin` (created
@@ -26,23 +32,38 @@ macOS. See README.md for user-facing docs.
 
 ## Invariants (don't break these)
 
-- **Instant-prompt ordering**: anything that prints during zsh init must stay
-  above the "END of pre-instant-prompt zone" marker in `zshrc`, or p10k warns
-  about console output during init. The fastfetch banner and the mise startup
-  hooks (mise.zsh) live there today. Hand-maintained — the marker is the
-  spot; new output-producing init goes above it, never below (and never in
-  `dot-files/.zshrc`, which loads after the prompt).
+- **The prompt is starship, not an OMZ theme**: `ZSH_THEME=""` in `zshrc`,
+  and `eval "$(starship init zsh)"` must stay at the very END of `zshrc`
+  (starship docs — init wraps zle widgets and registers hooks). Config is
+  repo-tracked: `dot-files/starship.toml` symlinked to
+  `~/.config/starship.toml` by `link_configs()` (LINKED_CONFIG_FILES); the
+  script never writes the target. Bump `STARSHIP_VERSION` in CONFIG to
+  upgrade (arm64 Linux uses the musl asset — starship ships no
+  aarch64-linux-gnu build).
+- **Exit-status hygiene**: guards that run just before the first prompt use
+  `if ... fi`, not `&&` — a false condition leaves `$?=0`, so starship's
+  default character isn't red on every new shell. Applies to
+  `dot-files/.zshrc` (`~/.zshrc-local`) and the starship init guard.
 - **`~/.zshrc` is a symlink** into the repo. The install script never writes
-  to `~/.zshrc` or `<repo>/zshrc` directly. Same for the other LINKED_DOTFILES.
+  to `~/.zshrc`, `<repo>/zshrc`, or the LINKED_CONFIG_FILES targets. Same for
+  the other LINKED_DOTFILES.
 - **`~/.config/mise` and `~/.local/share/mise` are never cleaned** — rebuilds
   must not wipe the global config or toolchains installed through mise. Bump
-  `MISE_VERSION` in CONFIG to upgrade mise itself.
+  `MISE_VERSION` in CONFIG to upgrade mise itself. More generally, `clean()`
+  touches `~/.config` only at the exact repo-linked file paths (never
+  `rm -rf ~/.config`).
 - **`~/.zsh_history` is never touched** — it's not in the script's DOTFILES
   list, so clean() neither removes it nor backs it up: autosuggestions and
   history-substring-search read it, so deleting it on a rebuild silently
   kills both. It's user data, not config.
-- **`dot-files/.zshrc` uses `if` (not `&&`)** for `~/.zshrc-local` so a
-  missing file leaves `$?=0` (otherwise the p10k chevron renders red).
+- **Legacy p10k cleanup lives in `cleanup-legacy-p10k.sh`, not the
+  installer** — pre-starship installs left `~/.p10k.zsh` (a repo symlink) and
+  `~/.cache/p10k-*` behind; `clean-install-zsh.sh` deliberately never touches
+  them (no backup, no removal). The one-shot script removes them (a real
+  `~/.p10k.zsh` is backed up first, a symlink is just deleted). Once no
+  machine needs it, delete the script — nothing depends on it. The MesloLGS
+  NF download/AUR lines in the installer are fonts (starship glyphs), not
+  p10k leftovers — keep them.
 - Script must stay distro-agnostic: system packages only `zsh`/`git`/`curl`
   (plus optional fastfetch); everything else comes from git or precompiled
   release binaries. Don't add distro-specific package deps.
@@ -95,8 +116,8 @@ macOS. See README.md for user-facing docs.
 
 1. To add a feature: add its dependency install to `clean-install-zsh.sh`
    (the CONFIG block pins versions/repos) AND wire it up in `zshrc` directly
-   (mind the instant-prompt ordering invariant above). To change behavior:
-   edit `zshrc`.
+   (mind the starship-init-at-end and exit-status invariants above). To
+   change behavior: edit `zshrc`.
 2. Verify with a fake home in /tmp (see Testing below).
 
 ## Environment 
@@ -112,7 +133,8 @@ shell stack. The user runs it themselves.
 Same for `updateRemoteShell.sh` (it reinstalls on a remote machine). Agents
 test against a **fake home directory in /tmp**, which redirects everything the
 script touches (backup, `~/.oh-my-zsh`, `~/.zsh-plugins`, dotfile symlinks,
-fonts, mise) away from the real home:
+fonts, mise, the starship binary, `~/.config/starship.toml`) away from the
+real home:
 
 ```sh
 mkdir -p /tmp/zsh-test-home
@@ -120,10 +142,17 @@ HOME=/tmp/zsh-test-home bash clean-install-zsh.sh --skip-fonts --skip-packages
 ```
 
 `--skip-fonts` avoids the Nerd Font download/fontconfig side effects;
-`--skip-packages` skips the distro package check (still needs network — OMZ,
-plugins, p10k are cloned and the mise binary downloaded). A plain
-default run is sudo-free: `sudo` only appears in `set_default_shell` (chsh),
-so never pass `--set-default` in a test.
+`--skip-packages` skips the distro package check (still needs network — OMZ
+and the plugins are cloned, the mise and starship binaries downloaded). A
+plain default run is sudo-free: `sudo` only appears in `set_default_shell`
+(chsh), so never pass `--set-default` in a test.
+
+Expected noise in the test log: mise reports the real
+`~/.config/mise/config.toml` as untrusted and the `gh` install step warns.
+That's an artifact of the HOME override — mise walks up from the checkout,
+finds the real home's config as an ancestor config, and (since HOME differs)
+treats it as untrusted. On a real machine that file is the global config and
+no trust applies. Don't chase it.
 
 Check after the run:
 
@@ -132,9 +161,19 @@ Check after the run:
   (`~/.zshrc -> <repo>/dot-files/.zshrc`), backup dir `zsh-backup-*` created.
 - `ls -la /tmp/zsh-test-home/.bin/` — repo bin scripts symlinked
   (`~/.bin/g -> <repo>/bin/g`).
+- `~/.config/starship.toml` is a symlink into the repo
+  (`dot-files/starship.toml`); `~/.local/bin/starship --version` matches
+  `STARSHIP_VERSION`.
 - `~/.config/mise/config.toml` contains `idiomatic_version_file_enable_tools`
   with java, node, python.
 - `git status zshrc` — the script must leave the static `zshrc` untouched.
-- Smoke-test the setup: `HOME=/tmp/zsh-test-home zsh -i -c 'command -v mise'`.
+- Smoke-test the setup:
+  `HOME=/tmp/zsh-test-home zsh -i -c 'command -v mise; command -v starship'`.
+
+`cleanup-legacy-p10k.sh` is separate from the installer and safe to test the
+same way: seed a dangling `~/.p10k.zsh` symlink (or a real file) plus
+`~/.cache/p10k-*`, run `HOME=/tmp/zsh-test-home bash cleanup-legacy-p10k.sh`,
+and check they're gone (a real file lands in `zsh-backup-*-p10k/`); a second
+run reports nothing to clean.
 
 Clean up with `rm -rf /tmp/zsh-test-home`.
