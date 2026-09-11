@@ -56,6 +56,14 @@ macOS. See README.md for user-facing docs.
   registered BEFORE the init at the end of `zshrc` and must return the
   original `$?` (starship's own precmd hook records it for the character
   colour and command duration).
+- **UTF-8 locale guard at the top of `zshrc`**: zsh counts prompt glyph
+  widths — and the layout math above does the same — in the locale's
+  charset, so a non-UTF-8 locale counts each byte of a nerd-font icon as a
+  column and the prompt drifts ~2 columns per icon. IDE-integrated
+  terminals often start the shell without the login environment's LANG, so
+  `zshrc` exports the first UTF-8 locale that verifies via
+  `locale charmap` (C.UTF-8, en_US.UTF-8, en_GB.UTF-8, UTF-8) when the
+  current one isn't UTF-8.
 - **Exit-status hygiene**: guards that run just before the first prompt use
   `if ... fi`, not `&&` — a false condition leaves `$?=0`, so starship's
   default character isn't red on every new shell. Applies to

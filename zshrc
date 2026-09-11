@@ -5,6 +5,21 @@
 # The fastfetch banner sits near the top so it prints before mise's startup
 # notices and the first prompt — readability, not correctness.
 
+# zsh sizes the prompt — icon widths, the right prompt's position, the input
+# cursor — by counting characters in the locale's charset: without a UTF-8
+# locale each byte of a nerd-font icon counts as a column and things drift
+# ~2 columns per icon. IDE-integrated terminals often start the shell
+# without the login environment that carries LANG, so force one if missing.
+if [[ ${(L)$(locale charmap 2>/dev/null)} != utf-8 ]]; then
+  for __loc in C.UTF-8 en_US.UTF-8 en_GB.UTF-8 UTF-8; do
+    export LANG=$__loc LC_ALL=$__loc
+    if [[ ${(L)$(locale charmap)} == utf-8 ]]; then
+      break
+    fi
+  done
+  unset __loc
+fi
+
 typeset -U path fpath
 
 # Never nano:
