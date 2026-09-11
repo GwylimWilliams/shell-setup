@@ -8,7 +8,9 @@
 add_newline = false
 # Braces are required around ${custom.*} in format strings — the module names
 # contain dots.
-format = "$username${custom.host_icon}$hostname$directory${custom.git_forge}$git_branch$git_status$character"
+# No $character: zshrc renders the chevron separately to lay it out (it drops
+# to its own line when the rest of the left prompt fills over half the width).
+format = "$username${custom.host_icon}$hostname$directory${custom.git_forge}$git_branch$git_status"
 right_format = "$cmd_duration$jobs${custom.mise_tools}$time"
 
 [username]

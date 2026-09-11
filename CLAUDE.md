@@ -40,6 +40,22 @@ macOS. See README.md for user-facing docs.
   script never writes the target. Bump `STARSHIP_VERSION` in CONFIG to
   upgrade (arm64 Linux uses the musl asset — starship ships no
   aarch64-linux-gnu build).
+- **Prompt layout is zsh glue in `zshrc`, not starship config**: zsh drops
+  RPROMPT when the left prompt leaves it no room and starship has no
+  conditional layout (fill/$line_break are unconditional), so `zshrc` renders
+  the pieces separately — left modules, the chevron (starship's character
+  module, deliberately absent from `dot-files/starship.toml`'s format),
+  right modules — and composes: one line with the right prompt trailing (via
+  zsh's own RPROMPT, so the input cursor follows the chevron); chevron and
+  input on a line below when the left covers over half the line; right
+  prompt on a line above when it doesn't fit. PROMPT and RPROMPT hold
+  `$(starship_prompt_part left|right)` calls — each side renders and decides
+  independently (separate subshells, no fixed evaluation order, no shared
+  state) and being calls, not rendered strings, vi-mode changes (starship's
+  zle reset-prompt) and resizes re-render. `starship_prompt_precmd` is
+  registered BEFORE the init at the end of `zshrc` and must return the
+  original `$?` (starship's own precmd hook records it for the character
+  colour and command duration).
 - **Exit-status hygiene**: guards that run just before the first prompt use
   `if ... fi`, not `&&` — a false condition leaves `$?=0`, so starship's
   default character isn't red on every new shell. Applies to
