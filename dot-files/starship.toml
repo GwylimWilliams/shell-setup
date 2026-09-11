@@ -1,25 +1,14 @@
 # Repo-managed starship config — symlinked to ~/.config/starship.toml by
-# clean-install-zsh.sh. Replicates the old powerlevel10k "lean" prompt: one
-# line, no blank line, concise wording, grey user@host, blue directory, green
-# git branch; right side: command duration, jobs, tool versions, time.
+# clean-install-zsh.sh.
 #
-# Colours are the old .p10k.zsh ANSI-256 indices converted to hex:
-#   244=#808080  31=#0087AF  39=#00AFFF  76=#5FD700  178=#D7AF00
-#   66=#5F8787  101=#87875F  70=#5FAF00  196=#FF0000  208=#FF8700
-# Deviation from p10k (starship limitation): git's deleted/renamed files
-# are counted separately instead of folding into "!"/"+" like p10k did.
 # Customise interactively with: starship config
 
 "$schema" = 'https://starship.rs/config-schema.json'
 
 add_newline = false
-# Explicit segment list — p10k showed user, hostname, dir, vcs, prompt_char;
-# its language-version segments were disabled, so none are listed here.
-# ${custom.host_icon} supplies the icon between user and host, and
-# ${custom.git_forge} the vcs segment's leading icon (braces are required
-# because the module names contain dots).
+# Braces are required around ${custom.*} in format strings — the module names
+# contain dots.
 format = "$username${custom.host_icon}$hostname$directory${custom.git_forge}$git_branch$git_status$character"
-# Tool versions (java/node/python, as mise activates them) sit before the time.
 right_format = "$cmd_duration$jobs${custom.mise_tools}$time"
 
 [username]
@@ -33,11 +22,8 @@ style = "#808080"
 format = "[$hostname]($style) "
 
 [custom.host_icon]
-# The icon between user and host — p10k's prompt_hostname: U+F4A9
-# nf-oct-device_desktop locally, U+F498 nf-md-remote-desktop over SSH, both in
-# p10k's orange (HOSTNAME_VISUAL_IDENTIFIER_COLOR=208). Starship's hostname
-# module only knows the SSH-only ssh_symbol, so this is a custom module (one
-# sh subprocess per prompt).
+# Starship's hostname module only knows the SSH-only ssh_symbol, so the device
+# icon is a custom module (one sh subprocess per prompt).
 format = "([$output](#FF8700) )"
 when = true
 command = '''
@@ -48,29 +34,24 @@ else
 fi
 '''
 
-
 [directory]
 style = "#0087AF"
 before_repo_root_style = "#0087AF"
-# p10k's "anchor" directories: bold bright blue.
 repo_root_style = "bold #00AFFF"
-# p10k showed the full path while it fit (~80 columns); keep the pre-repo
-# part visible and shorten only when long.
+# Keep the pre-repo part visible; shorten only when long.
 truncate_to_repo = false
 truncation_length = 5
-# U+F023 lock (p10k's), not the starship emoji.
+# U+F023 lock, not the default emoji.
 read_only = ""
 read_only_style = "#0087AF"
 
 [custom.git_forge]
-# p10k replaced the branch icon with the forge's icon when the repo's origin
-# is on a known host; the code-fork (U+F126) stays otherwise. Starship has
-# no built-in forge icons, so this shells out to git: two subprocesses per
-# prompt inside a repo. Drop this block and restore the git_branch symbol if
-# that cost matters.
+# Starship has no built-in forge icons, so this shells out to git: two
+# subprocesses per prompt inside a repo. Drop this block and restore the
+# git_branch symbol if that cost matters.
 format = "([$output](#5FD700) )"
-# Custom modules default to when = false (hidden) — the command itself stays
-# quiet outside a repo, and the conditional format hides the empty output.
+# Custom modules are hidden by default; outside a repo the command stays
+# silent and the conditional format renders nothing.
 when = true
 command = '''
 git rev-parse --git-dir >/dev/null 2>&1 || exit 0
@@ -85,15 +66,12 @@ esac
 
 [git_branch]
 style = "#5FD700"
-# p10k truncated long branch names.
 truncation_length = 32
 format = "[$branch(:$remote_branch)]($style) "
 
 [git_status]
-# Per-symbol colours come from the format (each variable gets its own style,
-# as in p10k): ahead/behind + stash green, conflicts red, staged/modified
-# yellow, untracked blue. Symbols carry $count because p10k always printed
-# file counts (+1 !2 ?3) — starship omits them unless the symbol asks.
+# Per-symbol colours come from the format, not the module style. Overriding a
+# symbol replaces its default, so $count must be spelled out explicitly.
 format = "([$ahead_behind](#5FD700)[$stashed](#5FD700)[$conflicted](#FF0000)[$renamed]($style)[$staged]($style)[$modified]($style)[$deleted]($style)[$untracked](#00AFFF))"
 style = "#D7AF00"
 stashed = "*$count "
@@ -105,7 +83,6 @@ deleted = "!$count "
 untracked = "?$count "
 ahead = "⇡$count "
 behind = "⇣$count "
-# p10k showed both counts on divergence: ⇣42⇡42.
 diverged = "⇣$behind_count⇡$ahead_count "
 
 [character]
@@ -117,14 +94,12 @@ vimcmd_replace_symbol = "[▶](#5FD700)"
 vimcmd_replace_one_symbol = "[▶](#5FD700)"
 
 [cmd_duration]
-# p10k threshold was 3s and it printed no "took" wording.
 min_time = 3000
 style = "#87875F"
 format = "[$duration]($style) "
 
 [jobs]
-# U+F013 (cog), p10k's icon. p10k showed the icon only (VERBOSE=false), so
-# the number threshold is effectively unreachable.
+# U+F013 (cog); number_threshold is set high so the count never shows.
 symbol = " "
 style = "#5FAF00"
 number_threshold = 99
@@ -132,24 +107,20 @@ format = "[$symbol$number]($style) "
 
 [time]
 disabled = false
-# Grey 244, matching the username (p10k had 66 here).
 style = "#808080"
-# 24h with seconds (p10k: %D{%H:%M:%S}) comes from use_12hr = false.
 format = "[$time]($style) "
 
-
 # ── tool versions (mise) ────────────────────────────────────────
-# The p10k asdf segment, recreated from mise itself: `mise current` reports
-# the versions applied for this directory (from .tool-versions, mise.toml or
-# idiomatic files), reduced to the major number (corretto-21.0.6.7 -> 21),
-# in #5F8787 like the rest of the right prompt. Globals such as gh are
-# filtered out by the case — add case lines (p10k's icons) to show more.
+# `mise current` reports the versions applied for this directory (from
+# .tool-versions, mise.toml or idiomatic files), reduced to the major number
+# (corretto-21.0.6.7 -> 21). Globals such as gh are filtered out by the case —
+# add case lines to show more.
 
 [custom.mise_tools]
 format = "([$output](#5F8787) )"
 when = true
 command = '''
-entry() {  # <icon-octal> <version> — major number only: corretto-21.0.6.7 -> 21
+entry() {
   major=$(printf '%s\n' "$2" | sed -n 's/^[^0-9]*\([0-9][0-9]*\).*/\1/p')
   [ -n "$major" ] || return 0
   printf "$1 %s " "$major"
