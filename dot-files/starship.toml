@@ -6,9 +6,8 @@
 # Colours are the old .p10k.zsh ANSI-256 indices converted to hex:
 #   244=#808080  31=#0087AF  39=#00AFFF  76=#5FD700  178=#D7AF00
 #   66=#5F8787  101=#87875F  70=#5FAF00  196=#FF0000  208=#FF8700
-# Deviations from p10k (starship limitations): the hostname carries no local
-# icon (only the SSH one), and git's deleted/renamed files are counted
-# separately instead of folding into "!"/"+" like p10k did.
+# Sole deviation from p10k (starship limitation): git's deleted/renamed files
+# are counted separately instead of folding into "!"/"+" like p10k did.
 # Customise interactively with: starship config
 
 "$schema" = 'https://starship.rs/config-schema.json'
@@ -16,9 +15,10 @@
 add_newline = false
 # Explicit segment list — p10k showed user, hostname, dir, vcs, prompt_char;
 # its language-version segments were disabled, so none are listed here.
-# ${custom.git_forge} supplies the vcs segment's leading icon (braces are
-# required because the module name contains a dot).
-format = "$username$hostname$directory${custom.git_forge}$git_branch$git_status$character"
+# ${custom.host_icon} supplies the icon between user and host, and
+# ${custom.git_forge} the vcs segment's leading icon (braces are required
+# because the module names contain dots).
+format = "$username${custom.host_icon}$hostname$directory${custom.git_forge}$git_branch$git_status$character"
 # Tool versions (java/node/python, as mise activates them) sit before the time.
 right_format = "$cmd_duration$jobs${custom.mise_tools}$time"
 
@@ -29,10 +29,25 @@ format = "[$user]($style) "
 
 [hostname]
 ssh_only = false
-# U+F498 (nf-md-remote-desktop) — rendered only over SSH, in p10k's orange.
-ssh_symbol = " "
 style = "#808080"
-format = "[$ssh_symbol](#FF8700)[$hostname]($style) "
+format = "[$hostname]($style) "
+
+[custom.host_icon]
+# The icon between user and host — p10k's prompt_hostname: U+F4A9
+# nf-oct-device_desktop locally, U+F498 nf-md-remote-desktop over SSH, both in
+# p10k's orange (HOSTNAME_VISUAL_IDENTIFIER_COLOR=208). Starship's hostname
+# module only knows the SSH-only ssh_symbol, so this is a custom module (one
+# sh subprocess per prompt).
+format = "([$output](#FF8700) )"
+when = true
+command = '''
+if [ -n "$SSH_CONNECTION$SSH_CLIENT$SSH_TTY" ]; then
+  printf '\357\222\230'  # U+F498 nf-md-remote-desktop
+else
+  printf '\357\222\251'  # U+F4A9 nf-oct-device_desktop
+fi
+'''
+
 
 [directory]
 style = "#0087AF"
