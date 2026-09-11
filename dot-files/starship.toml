@@ -6,7 +6,7 @@
 # Colours are the old .p10k.zsh ANSI-256 indices converted to hex:
 #   244=#808080  31=#0087AF  39=#00AFFF  76=#5FD700  178=#D7AF00
 #   66=#5F8787  101=#87875F  70=#5FAF00  196=#FF0000  208=#FF8700
-# Sole deviation from p10k (starship limitation): git's deleted/renamed files
+# Deviation from p10k (starship limitation): git's deleted/renamed files
 # are counted separately instead of folding into "!"/"+" like p10k did.
 # Customise interactively with: starship config
 
@@ -132,7 +132,8 @@ format = "[$symbol$number]($style) "
 
 [time]
 disabled = false
-style = "#5F8787"
+# Grey 244, matching the username (p10k had 66 here).
+style = "#808080"
 # 24h with seconds (p10k: %D{%H:%M:%S}) comes from use_12hr = false.
 format = "[$time]($style) "
 
