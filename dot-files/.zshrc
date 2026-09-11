@@ -31,6 +31,9 @@ export LSCOLORS=ExGxFxdxCxDxDxxbaDecac
 
 # ── your personal additions ──────────────────────────────────────
 
+# Keep Jfrog quiet for version bumps:
+export JFROG_CLI_AVOID_NEW_VERSION_WARNING=true
+
 # Tab on an empty line runs ls instead of inserting a literal tab
 _tab_ls() {
   if [[ -z $BUFFER ]]; then
