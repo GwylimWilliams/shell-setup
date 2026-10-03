@@ -92,6 +92,24 @@ macOS. See README.md for user-facing docs.
   (plus optional fastfetch); everything else comes from git or precompiled
   release binaries. Don't add distro-specific package deps.
 
+## History & Autosuggestions
+
+- **Session-scoped history**: `zshrc` overrides OMZ's `share_history` with
+  `unsetopt share_history` + `setopt inc_append_history_time` (durations;
+  extended_history comes from OMZ). Live shells don't import each other's
+  commands at prompt time; each writes to `~/.zsh_history` as it runs, and new
+  shells read the file at startup.
+- **`pathvalid` strategy** (in `zshrc`, `ZSH_AUTOSUGGEST_STRATEGY=(pathvalid)`
+  replaces the stock `history` strategy): walks matching entries newest->oldest
+  and skips a candidate whose first simple command's statically-resolvable path
+  operands have ALL vanished. Kinds: cd/pushd/rmdir -> dirs; ls/cat/rm/chmod/…
+  -> must exist; grep/sed/awk/jq -> first operand (pattern/script) skipped;
+  cp/mv -> last (destination) skipped. Unknown commands pass through. Only
+  inline ghost text is affected; the up-arrow menu still lists stale entries.
+  Aggressive by design — occasional over-suppression is accepted.
+- **Intentionally excluded** from validation: editors and creators (they name
+  files that may be created), git/find, archives — suggested unvalidated.
+
 ## mise Version & Toolchain Notes
 
 - **PATH-based activation**: `mise.zsh` runs `mise activate zsh` (no shims),

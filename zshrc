@@ -54,10 +54,95 @@ ZSH_THEME=""   # prompt is drawn by starship (see the end of this file)
 plugins=( git sudo z docker gradle command-not-found colored-man-pages )
 source "$ZSH/oh-my-zsh.sh"
 
+# OMZ's share_history imports other live shells' commands at prompt time;
+# write each command out instead, so only new shells see each other's.
+unsetopt share_history
+setopt inc_append_history_time
+
 # ── git-based zsh extras (fish-feel typing) ─────────────────────
 # zsh-autosuggestions: grey inline suggestions as you type
 [[ -r ~/.zsh-plugins/zsh-autosuggestions/zsh-autosuggestions.zsh ]] && \
   source ~/.zsh-plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
+
+# pathvalid strategy: like `history`, but walks matches newest -> oldest and
+# skips a candidate whose first command's statically-resolvable path operands
+# have ALL vanished (e.g. `cd gone-dir`, `ls gone-file`); unknown commands
+# pass through unvalidated.
+ZSH_AUTOSUGGEST_STRATEGY=(pathvalid)
+
+_zsh_autosuggest_strategy_pathvalid() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local prefix="${1//(#m)[\\*?[\]<>()|^~#]/\\$MATCH}"
+  local pattern="$prefix*"
+  [[ -n $ZSH_AUTOSUGGEST_HISTORY_IGNORE ]] && pattern="($pattern)~($ZSH_AUTOSUGGEST_HISTORY_IGNORE)"
+  local -a keys=( ${(k)history[(R)$~pattern]} )
+  local key
+  for key in $keys[1,200]; do
+    if _zsh_autosuggest_pathvalid_keep "${history[$key]}"; then
+      typeset -g suggestion="${history[$key]}"
+      return
+    fi
+  done
+  typeset -g suggestion=
+}
+
+# True if the candidate should be suggested.
+_zsh_autosuggest_pathvalid_keep() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  local -a words=( ${(@z)1} )
+  local -a wrappers=( sudo command builtin noglob env time nohup )
+  # Operators as a padded string: (I) subscripts don't match literal `|`.
+  local sepstr=" | || && ; & ( ) < > << >> <<< "
+  local n=${#words} i=1 q cmd=
+  # First simple command only: skip leading assignments and wrappers (+flags).
+  while (( i <= n )); do
+    q=${(Q)words[i]}
+    [[ $sepstr == *" $q "* ]] && return 0
+    if [[ $q == [A-Za-z_][A-Za-z0-9_]#=* ]]; then (( i++ )); continue; fi
+    if (( $wrappers[(I)$q] )); then
+      (( i++ ))
+      while (( i <= n )) && [[ ${(Q)words[i]} == -* ]]; do (( i++ )); done
+      continue
+    fi
+    cmd=$q; (( i++ )); break
+  done
+  local kind
+  case $cmd in
+    cd|pushd|rmdir) kind=dir ;;
+    grep|egrep|fgrep|rg|sed|awk|jq) kind=skip1 ;;   # first operand: pattern/script
+    cp|mv) kind=skiplast ;;                         # last operand: destination
+    ls|cat|bat|batcat|less|more|head|tail|wc|file|stat|du|tree|eza|exa|md5sum|sha1sum|sha256sum|xxd|od|strings|cmp|diff|rm|chmod|chown) kind=exist ;;
+    *) return 0 ;;
+  esac
+  local -a ops=()
+  local seen_dd=0
+  for (( ; i <= n; i++ )); do
+    q=${(Q)words[i]}
+    [[ $sepstr == *" $q "* ]] && break
+    if [[ $q == -- ]]; then seen_dd=1; continue; fi
+    if (( ! seen_dd )) && [[ $q == [-+]* ]]; then continue; fi
+    [[ $q == <-> ]] && continue
+    case $q in *[\$\\*?\[\{\(\)\`]*) continue ;; esac   # not statically resolvable
+    [[ $q == '~' ]] && q=$HOME
+    [[ $q == '~/'* ]] && q="$HOME/${q[3,-1]}"           # $var tildes aren't expanded by [[ -d ]]
+    case $q in '~'*) continue ;; esac                    # ~user: unresolvable
+    ops+=( $q )
+  done
+  (( $#ops )) || return 0
+  case $kind in
+    skip1) ops=( ${ops[2,-1]} ) ;;
+    skiplast) (( $#ops > 1 )) && ops=( ${ops[1,-2]} ) ;;
+  esac
+  (( $#ops )) || return 0
+  local op
+  for op in "${ops[@]}"; do
+    if [[ $kind == dir ]]; then [[ -d $op ]] && return 0
+    else [[ -e $op ]] && return 0; fi
+  done
+  return 1   # every checkable operand is gone -> stale
+}
 
 # zsh-history-substring-search: fish-style up/down arrow history search
 if [[ -r ~/.zsh-plugins/zsh-history-substring-search/zsh-history-substring-search.zsh ]]; then
