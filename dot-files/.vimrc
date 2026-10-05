@@ -56,3 +56,8 @@ nnoremap <leader>s :source $MYVIMRC<CR>
 nnoremap Y y$ " Y yanks to end of line like C and D
 nnoremap <C-Left> b
 nnoremap <C-Right> w
+
+" line hilight:
+set cursorline
+highlight CursorLine cterm=underline ctermbg=NONE gui=underline guibg=NONE
+
