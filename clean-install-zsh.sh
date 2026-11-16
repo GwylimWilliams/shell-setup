@@ -131,7 +131,7 @@ done
 
 # sanity
 [ -n "${BASH_VERSION:-}" ] || { echo "Run with bash: bash clean-install-zsh.sh" >&2; exit 1; }
-[ "$(id -u)" -ne 0 ] || { echo "Do not run as root (sudo is used internally)." >&2; exit 1; }
+[ "$(id -u)" -ne 0 ] || { echo "WARNING: INSTALLING AS ROOT"; }
 
 STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_DIR="$HOME/zsh-backup-$STAMP"
