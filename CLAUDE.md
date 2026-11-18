@@ -8,6 +8,10 @@ macOS. See README.md for user-facing docs.
 - `clean-install-zsh.sh` — the recipe: backup → clean → install dependencies.
   CONFIG block at the top pins versions (mise, starship), plugin repos,
   packages and dotfiles. It never writes `zshrc`.
+- `update-zsh.sh` — non-destructive update entrypoint (thin wrapper around
+  `clean-install-zsh.sh --update`): pulls/clones in place, relinks, and
+  checks sources. Never backs up or cleans; safe on every container start,
+  including an empty `$HOME`.
 - `updateRemoteShell.sh <target>` — scp the repo to a remote and re-run the
   install there.
 - `cleanup-legacy-p10k.sh` — standalone one-shot for machines that ran the

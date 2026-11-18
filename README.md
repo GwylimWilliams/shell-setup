@@ -6,6 +6,10 @@ Debian/Ubuntu (apt), or macOS (Homebrew). Everything is either fetched from
 git or downloaded as a precompiled binary, so the only required system
 packages are `zsh`, `git`, and `curl`.
 
+A second, non-destructive entrypoint (`update-zsh.sh`) keeps an installed stack
+current in place — no backup, no wipe — and is safe to run on every container
+start, including from an empty `$HOME`.
+
 ## What you get
 
 - **Oh My Zsh** with the **starship** prompt (cross-shell; the OMZ theme is disabled)
@@ -43,10 +47,18 @@ Requires `zsh`, `git`, and `curl` already installed — on a fresh machine,
 install those first (the script prints the exact command if any are missing),
 then re-run.
 
+Already installed? Keep it current in place with the non-destructive
+entrypoint instead — see [Updating in place](#updating-in-place):
+
+```sh
+bash ~/.shell-setup/update-zsh.sh
+```
+
 ## Repo layout
 
 ```
 clean-install-zsh.sh    the recipe: backup → clean → reinstall (deps only — never writes zshrc)
+update-zsh.sh           non-destructive update in place (thin wrapper: clean-install --update)
 updateRemoteShell.sh    push this repo to a remote machine and reinstall there
 cleanup-legacy-p10k.sh  one-shot: removes powerlevel10k leftovers on old machines
 zshrc                   STATIC hand-edited setup — wire features up here
@@ -61,11 +73,15 @@ dot-files/
 
 ```sh
 bash clean-install-zsh.sh                    # backup + clean + install
+bash clean-install-zsh.sh --update           # update in place (no backup/clean)
 bash clean-install-zsh.sh --backup-only      # just back up, change nothing
 bash clean-install-zsh.sh --keep-config      # remove OMZ/plugins, keep dotfiles
 bash clean-install-zsh.sh --set-default      # chsh to zsh (no prompt)
 bash clean-install-zsh.sh --skip-packages    # skip the package presence check
 bash clean-install-zsh.sh --skip-fonts       # skip the Nerd Font install
+
+bash update-zsh.sh                           # same as clean-install-zsh.sh --update
+bash update-zsh.sh --skip-fonts              # container-friendly: no font work
 ```
 
 On a fresh machine: install `zsh git curl` first (the script prints the exact
@@ -80,6 +96,41 @@ If a machine previously ran the powerlevel10k setup: `~/.p10k.zsh` and
 `~/.cache/p10k-*` may linger — `bash cleanup-legacy-p10k.sh` removes them (a
 real `~/.p10k.zsh` is backed up first). It's independent of the installer, so
 run it whenever convenient.
+
+## Updating in place
+
+`update-zsh.sh` is a thin wrapper around `clean-install-zsh.sh --update`. It is
+non-destructive and idempotent, and works from an empty `$HOME`:
+
+```sh
+bash update-zsh.sh                 # update/clone the stack, repair symlinks
+bash update-zsh.sh --skip-fonts    # same, without the Nerd Font step
+```
+
+- Existing `~/.oh-my-zsh` and `~/.zsh-plugins/*` checkouts are updated with
+  `git pull --ff-only`. A failed pull (e.g. no network) warns and keeps the
+  existing checkout; missing checkouts are cloned.
+- mise and starship binaries are downloaded only when the pinned version is
+  absent. The GitHub CLI is installed through mise only when
+  `github-cli@GH_VERSION` is not already installed (`mise where`, a local
+  lookup), instead of resolving the tool on every run.
+- `link_dotfiles`, `link_configs`, `link_bin` and `check_sources` re-run —
+  they are idempotent — so symlinks are repaired.
+- Nothing is backed up or cleaned: `backup()` and `clean()` are skipped.
+  `~/.oh-my-zsh`, `~/.zsh-plugins`, `~/.local/bin`, `~/.config` and
+  `~/.zsh_history` are never removed; only the exact repo-managed files and
+  links are replaced.
+
+Exit status is `0` when the stack is complete and current. A failed in-place
+pull (or another fatal step) exits non-zero, but the previous stack is left
+usable. This is the contract container entrypoints call:
+
+```sh
+bash /root/.shell-setup/update-zsh.sh --skip-fonts
+```
+
+The default behaviour of `clean-install-zsh.sh` is unchanged (destructive
+rebuild); `--update` is the mode `update-zsh.sh` uses.
 
 ## Updating a remote machine
 
@@ -102,6 +153,11 @@ versions/repos in `CONFIG`) and add the zshrc lines yourself. Missing required p
 and exit; optional tools (fastfetch) are skipped with a hint instead of
 blocking.
 
+`--update` (and therefore `update-zsh.sh`) runs the same installer steps but
+skips `backup()` and `clean()`: checkouts are pulled or cloned, binaries are
+version-gated, and the idempotent symlink/source checks are re-run. It never
+wipes anything, so it can run on every container start.
+
 Key design points:
 
 - **Layered zshrc** — `dot-files/.zshrc` (symlinked to `~/.zshrc`) sources the
@@ -119,6 +175,11 @@ Key design points:
   wiped. Bump `MISE_VERSION` in the CONFIG block to upgrade mise. More
   generally `~/.config` is only ever touched at the exact repo-linked files
   (`LINKED_CONFIG_FILES`).
+- **Non-destructive updates** — `update-zsh.sh` / `--update` pulls existing
+  checkouts and only clones missing ones. A failed pull warns and exits
+  non-zero without touching the rest of the stack. Nothing under
+  `~/.oh-my-zsh`, `~/.zsh-plugins`, `~/.local/bin` or `~/.config` is ever
+  removed in this mode.
 - **Edits in `~` are committable** — the symlinked dotfiles point into the
   repo, so changing `~/.vimrc` or the starship config produces commits
   directly.

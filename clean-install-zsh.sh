@@ -6,11 +6,19 @@
 #
 # Usage:
 #   bash clean-install-zsh.sh                     # backup + clean + install
+#   bash clean-install-zsh.sh --update            # update in place (no backup/clean)
 #   bash clean-install-zsh.sh --backup-only       # just back up, change nothing
 #   bash clean-install-zsh.sh --keep-config       # remove OMZ/plugins, keep dotfiles
 #   bash clean-install-zsh.sh --set-default       # chsh to zsh (no prompt)
 #   bash clean-install-zsh.sh --skip-packages     # skip the package presence check
 #   bash clean-install-zsh.sh --skip-fonts        # skip the Nerd Font install
+#   bash update-zsh.sh --skip-fonts               # thin wrapper: update-zsh.sh runs --update
+#
+# --update is the non-destructive mode used by update-zsh.sh: it skips backup()
+# and clean(), pulls existing checkouts in place (git pull --ff-only, warning
+# and continuing when that fails), clones anything missing, re-runs the
+# idempotent symlink steps, and exits non-zero if an in-place pull failed —
+# leaving the previous stack usable either way.
 #
 # Design: this script installs dependencies — clones, precompiled binaries,
 # symlinked dotfiles and repo bin scripts. The top-level `zshrc` is a static,
@@ -116,6 +124,8 @@ BACKUP_ONLY=0
 KEEP_CONFIG=0
 SKIP_PACKAGES=0
 SKIP_FONTS=0
+UPDATE=0
+UPDATE_FAILED=0
 
 for arg in "$@"; do
   case "$arg" in
@@ -124,7 +134,8 @@ for arg in "$@"; do
     --set-default)   DO_CHSH=1 ;;
     --skip-packages) SKIP_PACKAGES=1 ;;
     --skip-fonts)    SKIP_FONTS=1 ;;
-    -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
+    --update)        UPDATE=1 ;;
+    -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
     *) echo "Unknown option: $arg" >&2; exit 1 ;;
   esac
 done
@@ -154,6 +165,24 @@ BIN_LINK_DIR="$HOME/.bin"
 
 log() { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
 die() { printf '\033[1;31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
+
+if [ "$UPDATE" -eq 1 ] && [ "$BACKUP_ONLY" -eq 1 ]; then
+  die "--backup-only cannot be combined with --update (update mode never backs up)"
+fi
+
+# --update: pull an existing checkout in place. A failed pull is a warning (the
+# existing files stay usable) but makes --update exit non-zero so the caller
+# knows the stack is stale; the destructive default keeps its old behaviour.
+pull_ff() {
+  local dir="$1"
+  if ! (cd "$dir" && git pull --ff-only); then
+    echo "  (update skipped — keeping the existing checkout)" >&2
+    if [ "$UPDATE" -eq 1 ]; then
+      UPDATE_FAILED=1
+    fi
+    return 1
+  fi
+}
 
 # 1. backup
 backup() {
@@ -375,7 +404,10 @@ clean() {
 install_omz() {
   if [ -d "$OMZ_DIR/.git" ]; then
     echo "  oh-my-zsh present — updating"
-    (cd "$OMZ_DIR" && git pull --ff-only) || echo "  (update skipped)"
+    # pull_ff warns and records a failure in update mode; keep going.
+    pull_ff "$OMZ_DIR" || true
+  elif [ -e "$OMZ_DIR" ]; then
+    die "$OMZ_DIR exists but is not a git checkout — refusing to remove it (run clean-install-zsh.sh without --update for a rebuild)"
   else
     log "Cloning Oh My Zsh"
     git clone --depth=1 https://github.com/ohmyzsh/ohmyzsh.git "$OMZ_DIR"
@@ -431,7 +463,15 @@ sync_plugin() {
   mkdir -p "$PLUGIN_DIR"
   if [ -d "$dir/.git" ]; then
     echo "  $name present — updating"
-    (cd "$dir" && git pull --ff-only) || echo "  (update skipped)"
+    if ! pull_ff "$dir"; then
+      # pull_ff already warned. Update mode's plugin fan-out uses the exit
+      # status to report the failure; the checkout itself is still usable.
+      if [ "$UPDATE" -eq 1 ]; then
+        return 1
+      fi
+    fi
+  elif [ -e "$dir" ]; then
+    die "$dir exists but is not a git checkout — refusing to remove it (run clean-install-zsh.sh without --update for a rebuild)"
   else
     git clone --depth=1 "$url" "$dir"
   fi
@@ -439,10 +479,29 @@ sync_plugin() {
 
 install_plugins() {
   log "Fetching zsh plugins from git → $PLUGIN_DIR"
-  sync_plugin zsh-syntax-highlighting "$SYNTAX_REPO"
-  sync_plugin zsh-autosuggestions "$AUTOSUGGEST_REPO"
-  sync_plugin zsh-history-substring-search "$HISTORY_SEARCH_REPO"
-  sync_plugin zsh-completions "$COMPLETIONS_REPO"
+  local -a names=(zsh-syntax-highlighting zsh-autosuggestions zsh-history-substring-search zsh-completions)
+  local -a urls=("$SYNTAX_REPO" "$AUTOSUGGEST_REPO" "$HISTORY_SEARCH_REPO" "$COMPLETIONS_REPO")
+  local i pid rc=0
+  if [ "$UPDATE" -eq 1 ]; then
+    # The four repos are independent: pull them concurrently so an in-place
+    # update stays fast enough to run on every container start. Each
+    # sync_plugin runs in a subshell, so collect failures via wait's status.
+    local -a pids=()
+    for i in "${!names[@]}"; do
+      sync_plugin "${names[$i]}" "${urls[$i]}" &
+      pids+=("$!")
+    done
+    for pid in "${pids[@]}"; do
+      wait "$pid" || rc=1
+    done
+    if [ "$rc" -ne 0 ]; then
+      UPDATE_FAILED=1
+    fi
+  else
+    for i in "${!names[@]}"; do
+      sync_plugin "${names[$i]}" "${urls[$i]}"
+    done
+  fi
   check_sources
 }
 
@@ -522,8 +581,13 @@ install_mise() {
 
   # GitHub CLI — global tool so `gh` is available everywhere. mise use -g
   # installs it (aqua backend) and pins it in the global config's [tools].
-  # Warn instead of fail: gh is a dev tool, not part of the shell stack.
-  if "$mise_bin" use -g "github-cli@$GH_VERSION"; then
+  # Skip when the pinned version is already installed: `mise use -g` resolves
+  # the tool on every run otherwise. `mise where` is a local lookup (no
+  # network). Warn instead of fail: gh is a dev tool, not part of the shell
+  # stack.
+  if "$mise_bin" where "github-cli@$GH_VERSION" >/dev/null 2>&1; then
+    echo "  gh $GH_VERSION present (mise global) — skipping install"
+  elif "$mise_bin" use -g "github-cli@$GH_VERSION"; then
     echo "  gh $GH_VERSION installed (mise global)"
   else
     echo "  (warning) gh install failed — re-run with: mise use -g github-cli@$GH_VERSION" >&2
@@ -644,16 +708,26 @@ set_default_shell() {
 
 # main
 main() {
-  log "zsh stack clean-install for $(whoami)@$(hostname)"
+  if [ "$UPDATE" -eq 1 ]; then
+    log "zsh stack in-place update for $(whoami)@$(hostname)"
+  else
+    log "zsh stack clean-install for $(whoami)@$(hostname)"
+  fi
   detect_platform
-  backup
-  if [ "$BACKUP_ONLY" -eq 1 ]; then
-    log "Backup only — nothing else touched. Restore with: cp -a $BACKUP_DIR/.* ~/"
-    exit 0
+  if [ "$UPDATE" -eq 1 ]; then
+    echo "  --update: no backup, no clean — existing files are left in place."
+  else
+    backup
+    if [ "$BACKUP_ONLY" -eq 1 ]; then
+      log "Backup only — nothing else touched. Restore with: cp -a $BACKUP_DIR/.* ~/"
+      exit 0
+    fi
   fi
   check_packages
   install_fonts
-  clean
+  if [ "$UPDATE" -eq 0 ]; then
+    clean
+  fi
   install_omz
   install_starship
   install_plugins
@@ -663,8 +737,21 @@ main() {
   link_bin
   set_default_shell
 
+  # --update: a failed in-place pull already warned and kept the old checkout;
+  # report it via the exit status so the caller (e.g. a container entrypoint)
+  # knows the stack is stale. The stack itself is complete and usable.
+  if [ "$UPDATE" -eq 1 ] && [ "$UPDATE_FAILED" -ne 0 ]; then
+    echo
+    echo "ERROR: one or more in-place updates failed; the existing stack was left intact and is still usable." >&2
+    exit 1
+  fi
+
   log "Done"
-  echo "  Backup:        $BACKUP_DIR"
+  if [ "$UPDATE" -eq 1 ]; then
+    echo "  Mode:          in-place update (no backup, no clean)"
+  else
+    echo "  Backup:        $BACKUP_DIR"
+  fi
   echo "  zsh:           $(zsh --version 2>/dev/null | head -1 || echo 'not in PATH')"
   echo "  oh-my-zsh:     $OMZ_DIR"
   echo "  starship:      $("$STARSHIP_BIN" --version 2>/dev/null | head -1)"
