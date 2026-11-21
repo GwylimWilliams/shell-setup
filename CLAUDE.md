@@ -19,7 +19,9 @@ macOS. See README.md for user-facing docs.
   first) and `~/.cache/p10k-*`. Nothing in the repo references it; delete it
   once no machine needs it.
 - `zshrc` — STATIC, hand-edited (not generated). This is where features are
-  wired up; the install script only provides their dependencies.
+  wired up; the install script only provides their dependencies. It also
+  sources the optional, outside-the-repo `~/.shell-setup-rc` env file (e.g.
+  `PROMPT_HOSTNAME`).
 - `dot-files/` — repo-managed dotfiles, symlinked into `~`:
   - `.zshrc` — wrapper that sources `<repo>/zshrc` then personal additions.
     This is the file for personal shell tweaks. Machine-local overrides go in
@@ -44,6 +46,16 @@ macOS. See README.md for user-facing docs.
   script never writes the target. Bump `STARSHIP_VERSION` in CONFIG to
   upgrade (arm64 Linux uses the musl asset — starship ships no
   aarch64-linux-gnu build).
+- **Prompt hostname is a starship custom module, not `[hostname]`**: the
+  built-in hostname module always reports the system hostname and cannot be
+  overridden, so `dot-files/starship.toml` formats `${custom.hostname}`. It
+  prints exported `PROMPT_HOSTNAME` when set, else the real short hostname
+  (truncated at the first `.`). `zshrc` sources `~/.shell-setup-rc` with
+  `set -a` before mise/OMZ so the value is exported to starship's module
+  subprocess, and `starship_prompt_part` re-exports it before calling
+  starship so `~/.zshrc-local` doesn't need `export`. `~/.zshrc-local` is
+  sourced later and wins. Keep the file outside the repo: it is per-machine,
+  and `clean-install-zsh.sh`/`updateRemoteShell.sh` must never touch it.
 - **Prompt layout is zsh glue in `zshrc`, not starship config**: zsh drops
   RPROMPT when the left prompt leaves it no room and starship has no
   conditional layout (fill/$line_break are unconditional), so `zshrc` renders

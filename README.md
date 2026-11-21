@@ -13,6 +13,8 @@ start, including from an empty `$HOME`.
 ## What you get
 
 - **Oh My Zsh** with the **starship** prompt (cross-shell; the OMZ theme is disabled)
+- **Friendly prompt hostname** (optional) — set `PROMPT_HOSTNAME` in
+  `~/.shell-setup-rc`; otherwise the real short hostname is shown
 - **Plugins**: git, sudo, z, docker, command-not-found, colored-man-pages
 - **Fish-feel typing** (from git, no distro packages): zsh-syntax-highlighting,
   zsh-autosuggestions, zsh-history-substring-search, zsh-completions
@@ -163,7 +165,9 @@ Key design points:
 - **Layered zshrc** — `dot-files/.zshrc` (symlinked to `~/.zshrc`) sources the
   static `<repo>/zshrc`, then applies personal additions. The install script
   never writes either file, so re-running it can never clobber your edits.
-  Machine-local overrides live in `~/.zshrc-local` (untracked).
+  Machine-local overrides live in `~/.zshrc-local` (untracked); the
+  `~/.shell-setup-rc` env file is sourced earlier for per-machine values such
+  as the prompt hostname, and is outside the repo so updates never touch it.
 - **Starship draws the prompt, config is repo-tracked** — OMZ loads no theme;
   starship (pinned precompiled binary, `STARSHIP_VERSION`) owns the prompt.
   `dot-files/starship.toml` is symlinked to `~/.config/starship.toml`, so
@@ -192,5 +196,19 @@ Key design points:
 | Feature wiring (plugins, mise…) | `zshrc` — edit directly |
 | Personal zsh additions | `dot-files/.zshrc` (after the "your personal additions" marker) |
 | Machine-local overrides | `~/.zshrc-local` |
+| Friendly prompt hostname | `PROMPT_HOSTNAME` in `~/.shell-setup-rc` or `~/.zshrc-local` |
 | Prompt look | `starship config` / `starship preset` (edits `dot-files/starship.toml`, tracked) |
 | fastfetch banner | `dot-files/.fastfetch.jsonc` |
+
+### Friendly hostname
+
+The prompt shows the real short hostname unless `PROMPT_HOSTNAME` is set:
+
+```sh
+echo 'PROMPT_HOSTNAME="dream-box"' > ~/.shell-setup-rc
+```
+
+`~/.shell-setup-rc` is a per-machine env file sourced (and exported) at shell
+startup. It lives outside the repo, so installs, `git pull`s and remote pushes
+never touch it. `~/.zshrc-local` is sourced later and wins if both set the
+same variable.

@@ -10,7 +10,7 @@ add_newline = false
 # contain dots.
 # No $character: zshrc renders the chevron separately to lay it out (it drops
 # to its own line when the rest of the left prompt fills over half the width).
-format = "$username${custom.host_icon}$hostname$directory${custom.git_forge}$git_branch$git_status"
+format = "$username${custom.host_icon}${custom.hostname}$directory${custom.git_forge}$git_branch$git_status"
 right_format = "$cmd_duration$jobs${custom.mise_tools}$time"
 
 [username]
@@ -18,10 +18,22 @@ show_always = true
 style_user = "#808080"
 format = "[$user]($style) "
 
-[hostname]
-ssh_only = false
+[custom.hostname]
+# Starship's hostname module always reports the system hostname and cannot be
+# overridden, so this reads the exported PROMPT_HOSTNAME (set in the
+# ~/.shell-setup-rc or ~/.zshrc-local) and falls back to the real short
+# hostname. One sh subprocess per prompt (plus `hostname` when no alias).
 style = "#808080"
-format = "[$hostname]($style) "
+when = true
+format = "[$output]($style) "
+command = '''
+if [ -n "$PROMPT_HOSTNAME" ]; then
+  printf '%s' "$PROMPT_HOSTNAME"
+else
+  name=$(hostname)
+  printf '%s' "${name%%.*}"
+fi
+'''
 
 [custom.host_icon]
 # Starship's hostname module only knows the SSH-only ssh_symbol, so the device

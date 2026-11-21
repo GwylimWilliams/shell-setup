@@ -28,6 +28,18 @@ export EDITOR=vim
 # Prefer Chrome for opening links (xdg-open and CLI tools honor $BROWSER):
 (( $+commands[google-chrome] )) && export BROWSER=google-chrome
 
+# ── machine-local env ───────────────────────────────────────────
+# ~/.shell-setup-rc is the per-machine env file. It lives outside the repo,
+# so git updates and updateRemoteShell.sh never touch it. `set -a` exports
+# the assignments so child processes — starship's prompt modules run in a
+# subshell — see them. Missing file is normal; ~/.zshrc-local is sourced
+# later by dot-files/.zshrc, so it still wins.
+if [[ -r ~/.shell-setup-rc ]]; then
+  set -a
+  source ~/.shell-setup-rc
+  set +a
+fi
+
 # ── fastfetch banner ────────────────────────────────────────────
 (( $+commands[fastfetch] )) && fastfetch --config ~/.fastfetch.jsonc
 
@@ -204,6 +216,10 @@ starship_prompt_width() {
 starship_prompt_part() {
   emulate -L zsh
   setopt local_options extendedglob
+  # The custom hostname module reads this in a starship subprocess; export it
+  # here so a value set without `export` (e.g. in ~/.zshrc-local) still
+  # reaches the module.
+  if [[ -n ${PROMPT_HOSTNAME-} ]]; then export PROMPT_HOSTNAME; fi
   local side=$1 left right char lw rw cw pad cols=${COLUMNS:-80}
   local -a args=(
     --terminal-width="$cols" --keymap="${KEYMAP:-}"
